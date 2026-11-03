@@ -69,18 +69,6 @@ export default function Waveform({
     return viewport / duration;
   };
 
-  const zoomIn = () => {
-    const base = pxPerSecRef.current > 0 ? pxPerSecRef.current : fittedPxPerSec();
-    if (!(base > 0) || base >= MAX_PX_PER_SEC) return;
-    applyZoom(base * 2);
-  };
-
-  const zoomOut = () => {
-    if (pxPerSecRef.current <= 0) return;
-    const next = pxPerSecRef.current / 2;
-    applyZoom(next <= fittedPxPerSec() * 1.05 ? 0 : next);
-  };
-
   const onReady = (ws: WaveSurfer, duration: number) => {
     wavesurferRef.current = ws;
     pxPerSecRef.current = 0;
@@ -130,28 +118,30 @@ export default function Waveform({
     }
   }, [playhead, wavesurfer]);
 
+  useEffect(() => {
+    const box = wavesurfer?.getWrapper().parentElement;
+    if (!box) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return;
+      event.preventDefault();
+      const fitted = fittedPxPerSec();
+      const base = pxPerSecRef.current > 0 ? pxPerSecRef.current : fitted;
+      if (!(base > 0)) return;
+      const delta =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY;
+      const next = base * Math.exp(-delta * 0.0015);
+      applyZoom(next <= fitted * 1.05 ? 0 : next);
+    };
+    box.addEventListener("wheel", onWheel, { passive: false });
+    return () => box.removeEventListener("wheel", onWheel);
+  }, [wavesurfer]);
+
   const length = end - start;
   const zoomLabel = pxPerSec > 0 ? `${Math.round(pxPerSec)} px/s` : "Fit";
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <button
-          type="button"
-          className="border border-gray-300 rounded-md px-2 py-1"
-          disabled={!wavesurfer || pxPerSec <= 0}
-          onClick={zoomOut}
-        >
-          Zoom out
-        </button>
-        <button
-          type="button"
-          className="border border-gray-300 rounded-md px-2 py-1"
-          disabled={!wavesurfer || pxPerSec >= MAX_PX_PER_SEC}
-          onClick={zoomIn}
-        >
-          Zoom in
-        </button>
         <button
           type="button"
           className="border border-gray-300 rounded-md px-2 py-1"
