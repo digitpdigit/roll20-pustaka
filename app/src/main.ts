@@ -1,7 +1,19 @@
 import { app, BrowserWindow, session, WebContentsView, ipcMain } from 'electron';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
+// Vite `?raw` query. The import resolver does not understand it.
+// eslint-disable-next-line import/no-unresolved
 import roll20Script from './inject/roll20CharSheet.js?raw';
+import {
+    createItem,
+    deleteItem,
+    listItems,
+    putAudio,
+    readAudio,
+    renameItem,
+    updateItem,
+} from './library/store';
+import type { CreateItemInput, UpdateItemFields } from './library/types';
 
 if (started) {
     app.quit();
@@ -32,7 +44,7 @@ const createWindow = () => {
 
             if (currentUrl.includes('https://app.roll20.net/characters/sheet/')) {
                 browserChildView.webContents.executeJavaScript(roll20Script)
-                    .then((result) => console.log('Script injection complete.'))
+                    .then(() => console.log('Script injection complete.'))
                     .catch((err) => console.error('Failed to inject script:', err));
 
                 const wc = browserChildView.webContents;
@@ -72,11 +84,13 @@ const createWindow = () => {
                                     if (parsedPayload.d.b.d) {
                                         console.log(JSON.stringify(parsedPayload.d.b.d, null, 2));
                                     }                                    
-                                } catch (_) {}
+                                } catch {
+                                    // Ignore a frame that is not the expected JSON shape.
+                                }
 
                                 wsText = '';
-                            } catch (_) {
-                                
+                            } catch {
+                                // Ignore a websocket payload that is not complete JSON yet.
                             }
                             break;
                         }
@@ -104,10 +118,14 @@ const createWindow = () => {
                                             //------------- PARSE DATA FOR ROLL20 ROLLER -------------
                                             const data = JSON.parse(parsedPayload[Object.keys(parsedPayload)[0]].json);
                                             for (const roll of data.rolls) {
-                                                console.log(roll.results.map((e: any) => e.v as number).join(' ')); //ROLL RESULT NOT INCLUDING MODIFIERS
+                                                console.log(roll.results.map((e: { v: unknown }) => e.v as number).join(' ')); //ROLL RESULT NOT INCLUDING MODIFIERS
                                             }                                            
-                                        } catch (_) {}
-                                    } catch (_) {}
+                                        } catch {
+                                            // Ignore a dice payload that is not the expected shape.
+                                        }
+                                    } catch {
+                                        // Ignore a response body that cannot be read.
+                                    }
                                 }
                             }
                         }
@@ -150,7 +168,8 @@ app.on('ready', () => {
                     script-src ${scriptSrc};
                     style-src ${styleSrc};
                     object-src 'none';
-                    connect-src 'self' https://3mworkshop.org`
+                    connect-src 'self' https://3mworkshop.org blob:;
+                    media-src 'self' blob:`
                 ]
             }
         });
@@ -183,6 +202,26 @@ const setBounds = () => {
     }
 };
 
+ipcMain.handle('library:list', () => listItems());
+
+ipcMain.handle(
+    'library:putAudio',
+    (_event, payload: { bytes: Uint8Array; originalName: string }) => putAudio(payload.bytes, payload.originalName),
+);
+
+ipcMain.handle('library:readAudio', (_event, payload: { fileHash: string }) => readAudio(payload.fileHash));
+
+ipcMain.handle('library:create', (_event, item: CreateItemInput) => createItem(item));
+
+ipcMain.handle(
+    'library:update',
+    (_event, payload: { id: string; fields: UpdateItemFields }) => updateItem(payload.id, payload.fields),
+);
+
+ipcMain.handle('library:rename', (_event, payload: { id: string; name: string }) => renameItem(payload.id, payload.name));
+
+ipcMain.handle('library:delete', (_event, payload: { id: string }) => deleteItem(payload.id));
+
 ipcMain.on('load-browser-child', (_, show: boolean, urlStart: string) => {
     if ((mainWindow) && (browserChildView)) {
         if (show) {
@@ -190,8 +229,7 @@ ipcMain.on('load-browser-child', (_, show: boolean, urlStart: string) => {
                 mainWindow.contentView.addChildView(browserChildView);
                 browserChildView.webContents.openDevTools();
                 setBounds();
-                
-                let setBoundDebouncer;
+
                 mainWindow.on('resize', setBounds);
                 browserChildView.webContents.loadURL(urlStart);
             }

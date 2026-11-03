@@ -1,3 +1,4 @@
+/* eslint-disable import/no-unresolved -- eslint-plugin-import's resolver misses export-map packages */
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
